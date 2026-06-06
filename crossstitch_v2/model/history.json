@@ -1,0 +1,101 @@
+[
+  {
+    "epoch": 1,
+    "rb_acc": 1.0,
+    "rb_mae": 0.0,
+    "sinr_mae": 1.214531713241186,
+    "sinr_mse": 2.8688553185096155,
+    "throughput_mae": 0.9926562875600962,
+    "throughput_mse": 2.073864821213942
+  },
+  {
+    "epoch": 2,
+    "rb_acc": 1.0,
+    "rb_mae": 0.0,
+    "sinr_mae": 1.2125513196113782,
+    "sinr_mse": 2.878547601161859,
+    "throughput_mae": 0.9926562875600962,
+    "throughput_mse": 2.073864821213942
+  },
+  {
+    "epoch": 3,
+    "rb_acc": 1.0,
+    "rb_mae": 0.0,
+    "sinr_mae": 1.212323943309295,
+    "sinr_mse": 2.880809344951923,
+    "throughput_mae": 0.9926562875600962,
+    "throughput_mse": 2.073864821213942
+  },
+  {
+    "epoch": 4,
+    "rb_acc": 1.0,
+    "rb_mae": 0.0,
+    "sinr_mae": 1.2168560008513623,
+    "sinr_mse": 2.8570072365785255,
+    "throughput_mae": 0.9926562875600962,
+    "throughput_mse": 2.073864821213942
+  },
+  {
+    "epoch": 5,
+    "rb_acc": 1.0,
+    "rb_mae": 0.0,
+    "sinr_mae": 1.2136605506310096,
+    "sinr_mse": 2.870588366386218,
+    "throughput_mae": 0.9926562875600962,
+    "throughput_mse": 2.073864821213942
+  },
+  {
+    "epoch": 6,
+    "rb_acc": 1.0,
+    "rb_mae": 0.0,
+    "sinr_mae": 1.2124986979166668,
+    "sinr_mse": 2.8795346304086538,
+    "throughput_mae": 0.9926562875600962,
+    "throughput_mse": 2.073864821213942
+  },
+  {
+    "epoch": 7,
+    "rb_acc": 1.0,
+    "rb_mae": 0.0,
+    "sinr_mae": 1.2113736979166667,
+    "sinr_mse": 2.8915266551482373,
+    "throughput_mae": 0.9926562875600962,
+    "throughput_mse": 2.073864821213942
+  },
+  {
+    "epoch": 8,
+    "rb_acc": 1.0,
+    "rb_mae": 0.0,
+    "sinr_mae": 1.2137068058894231,
+    "sinr_mse": 2.8704424454126602,
+    "throughput_mae": 0.9926562875600962,
+    "throughput_mse": 2.073864821213942
+  },
+  {
+    "epoch": 9,
+    "rb_acc": 1.0,
+    "rb_mae": 0.0,
+    "sinr_mae": 1.215624524238782,
+    "sinr_mse": 2.86121875,
+    "throughput_mae": 0.9926562875600962,
+    "throughput_mse": 2.073864821213942
+  },
+  {
+    "epoch": 10,
+    "rb_acc": 1.0,
+    "rb_mae": 0.0,
+    "sinr_mae": 1.2119810822315704,
+    "sinr_mse": 2.883678911258013,
+    "throughput_mae": 0.9926562875600962,
+    "throughput_mse": 2.073864821213942
+  },
+  {
+    "epoch": 11,
+    "rb_acc": 1.0,
+    "rb_mae": 0.0,
+    "sinr_mae": 1.2135970803285256,
+    "sinr_mse": 2.87137933193109,
+    "throughput_mae": 0.9926562875600962,
+    "throughput_mse": 2.073864821213942
+  }
+]

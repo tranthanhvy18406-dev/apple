@@ -1,0 +1,12 @@
+{
+  "dataset": "ul_rr_1s_cdlc_10000s",
+  "doppler_hz": null,
+  "best_epoch": 1,
+  "epochs_ran": 11,
+  "rb_mae": 0.0,
+  "sinr_mae": 1.214531713241186,
+  "throughput_mae": 1.2688393559578137,
+  "rb_acc": 1.0,
+  "sinr_mse": 2.8688553185096155,
+  "model_path": "/4T/xty/Cross_Stitch/experiments_1s_rr_fullbuffer/ul_rr_1s_cdlc_10000s/best_mtl_model_decoder.pth"
+}

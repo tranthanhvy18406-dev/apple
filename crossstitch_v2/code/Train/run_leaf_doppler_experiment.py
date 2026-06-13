@@ -90,6 +90,7 @@ def parse_args():
     parser.add_argument("--finetune_epochs", type=int, default=30)
     parser.add_argument("--finetune_lr", type=float, default=1e-4)
     parser.add_argument("--finetune_weight_decay", type=float, default=0.0)
+    parser.add_argument("--finetune_scope", choices=["all", "head"], default="all")
 
     # Oracle baseline.
     parser.add_argument("--oracle_val_fraction", type=float, default=0.1)
@@ -524,10 +525,50 @@ def train_direct_supervised(
     return {"best_epoch": best_epoch, "best_val_throughput_mae": best_value, "model_path": str(model_path)}
 
 
+def configure_finetune_scope(model, scope):
+    if scope == "all":
+        for param in model.parameters():
+            param.requires_grad = True
+        return list(model.parameters())
+    if scope != "head":
+        raise ValueError(scope)
+
+    for param in model.parameters():
+        param.requires_grad = False
+    head_prefixes = (
+        "fusion",
+        "horizon_embedding",
+        "head_lstm",
+        "head_norm",
+        "rb_context",
+        "sinr_context",
+        "rb_head_lstms",
+        "sinr_head_lstms",
+        "head_cross_stitch_units",
+        "rb_head_projections_up",
+        "sinr_head_projections_up",
+        "rb_head_projections_down",
+        "sinr_head_projections_down",
+        "rb_head_norm",
+        "sinr_head_norm",
+        "rb_head",
+        "sinr_head",
+    )
+    trainable = []
+    for name, param in model.named_parameters():
+        if name.startswith(head_prefixes):
+            param.requires_grad = True
+            trainable.append(param)
+    if not trainable:
+        raise RuntimeError("No trainable head parameters were selected for fine-tuning.")
+    return trainable
+
+
 def finetune_direct_model(args, base_state, model, support_loader, objective):
     device = objective.device
     model.load_state_dict(base_state)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.finetune_lr, weight_decay=args.finetune_weight_decay)
+    trainable = configure_finetune_scope(model, args.finetune_scope)
+    optimizer = torch.optim.AdamW(trainable, lr=args.finetune_lr, weight_decay=args.finetune_weight_decay)
     history = []
     for epoch in range(1, args.finetune_epochs + 1):
         model.train()
@@ -539,11 +580,18 @@ def finetune_direct_model(args, base_state, model, support_loader, objective):
             rb_logits, sinr_pred = model(rb_seq, sinr_seq)
             loss = objective(rb_logits, sinr_pred, rb_label, sinr_label)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            torch.nn.utils.clip_grad_norm_(trainable, 1.0)
             optimizer.step()
             total_loss += loss.item() * len(rb_seq)
             seen += len(rb_seq)
-        history.append({"epoch": epoch, "support_loss": total_loss / max(seen, 1)})
+        history.append(
+            {
+                "epoch": epoch,
+                "support_loss": total_loss / max(seen, 1),
+                "finetune_scope": args.finetune_scope,
+                "trainable_params": int(sum(param.numel() for param in trainable)),
+            }
+        )
     return history
 
 
@@ -991,6 +1039,7 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
                     "base_model_path": str(base_state_path),
                     "finetune_epochs": args.finetune_epochs,
                     "finetune_lr": args.finetune_lr,
+                    "finetune_scope": args.finetune_scope,
                 },
             )
             results.append(payload)

@@ -100,10 +100,11 @@ class CrossStitch_MTL_Model(nn.Module):
                 rb_cross, sinr_cross = self.cross_stitch_units[i](rb_proj, sinr_proj)
                 rb_out, sinr_out = rb_out + self.rb_projections_down[i](rb_cross), sinr_out + self.sinr_projections_down[i](sinr_cross)
         
-        h_rb_last = self.proj_rb_for_dec(rb_h_tuple[0])
-        h_sinr_last = self.proj_sinr_for_dec(sinr_h_tuple[0])
-        h_T = (h_rb_last + h_sinr_last) / 2.0
-        h_T = h_T[-1, :, :].unsqueeze(0)
+        # Use post-Cross-Stitch sequence outputs; hidden tuples are from the
+        # LSTM call before the residual Cross-Stitch update.
+        h_rb_last = self.proj_rb_for_dec(rb_out[:, -1, :])
+        h_sinr_last = self.proj_sinr_for_dec(sinr_out[:, -1, :])
+        h_T = ((h_rb_last + h_sinr_last) / 2.0).unsqueeze(0)
         context_vec = h_T.transpose(0, 1)
 
         rb_pred, sinr_pred = self.decoder(

@@ -319,8 +319,11 @@ class DirectHorizonCrossStitch(nn.Module):
                 rb_out = rb_out + self.rb_projections_down[i](rb_cross)
                 sinr_out = sinr_out + self.sinr_projections_down[i](sinr_cross)
 
-        rb_last = self.proj_rb(rb_h_tuple[0][-1])
-        sinr_last = self.proj_sinr(sinr_h_tuple[0][-1])
+        # Use the sequence outputs after Cross-Stitch residual mixing.  The
+        # LSTM hidden tuples were captured before the per-layer Cross-Stitch
+        # update, so using them would bypass the final Cross-Stitch unit.
+        rb_last = self.proj_rb(rb_out[:, -1])
+        sinr_last = self.proj_sinr(sinr_out[:, -1])
         fused = self.fusion((rb_last + sinr_last) / 2.0)
         if self.head_type == "linear":
             rb_logits = self.rb_head(fused).view(-1, self.num_horizons, self.rb_output_size)

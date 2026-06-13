@@ -10,7 +10,8 @@ For each target Doppler, the other seven Dopplers are used as source domains.
 The target test trace is split by window index in time order:
 
 - support set: first `K=128` windows
-- query set: remaining windows
+- gap: `max(horizons)=10` windows
+- query set: windows after the support/gap boundary
 
 Each window uses the existing direct-horizon protocol:
 
@@ -19,8 +20,8 @@ Each window uses the existing direct-horizon protocol:
 - metric: throughput MAE, plus RB/SINR diagnostics
 
 With `test_1000_HDF5.pkl`, `hist_window=16`, and `max_horizon=10`, each target
-has `1000 - 16 - 10 + 1 = 975` windows. Therefore, the default query set has
-`975 - 128 = 847` windows.
+has `1000 - 16 - 10 + 1 = 975` windows. Therefore, the default query set starts
+at window `128 + 10 = 138` and has `975 - 138 = 837` windows.
 
 ## Methods
 
@@ -116,4 +117,3 @@ Each method directory contains:
 - `metrics.json`
 - `per_horizon_metrics.csv`
 - checkpoints and training history where applicable
-

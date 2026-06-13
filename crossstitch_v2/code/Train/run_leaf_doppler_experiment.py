@@ -659,10 +659,11 @@ def make_leaf_tasks(args, root, source_hzs, horizons, sinr_mean, sinr_std):
     tasks = []
     support_size = int(args.leaf_support_size)
     query_size = int(args.leaf_query_size)
+    gap = int(max(horizons))
     segment_count = max(1, int(args.leaf_num_task_segments))
     for hz in source_hzs:
         full = make_dataset(root, hz, "train", args.hist_window, horizons, sinr_mean, sinr_std, with_doppler=True)
-        span = support_size + query_size
+        span = support_size + gap + query_size
         max_start = max(0, full.total_windows - span)
         if segment_count == 1:
             starts = [0]
@@ -681,6 +682,7 @@ def make_leaf_tasks(args, root, source_hzs, horizons, sinr_mean, sinr_std):
                 end=start + support_size,
                 with_doppler=True,
             )
+            query_start = start + support_size + gap
             query = make_dataset(
                 root,
                 hz,
@@ -689,11 +691,21 @@ def make_leaf_tasks(args, root, source_hzs, horizons, sinr_mean, sinr_std):
                 horizons,
                 sinr_mean,
                 sinr_std,
-                start=start + support_size,
-                end=start + support_size + query_size,
+                start=query_start,
+                end=query_start + query_size,
                 with_doppler=True,
             )
-            tasks.append({"hz": hz, "segment_id": segment_id, "support": support, "query": query})
+            tasks.append(
+                {
+                    "hz": hz,
+                    "segment_id": segment_id,
+                    "support": support,
+                    "query": query,
+                    "gap_windows": gap,
+                    "support_start": start,
+                    "query_start": query_start,
+                }
+            )
     return tasks
 
 
@@ -804,6 +816,8 @@ def evaluate_method(
         "horizons": horizons,
         "support_size": extra_payload.get("support_size"),
         "query_size": extra_payload.get("query_size"),
+        "support_query_gap": extra_payload.get("support_query_gap"),
+        "query_start_window": extra_payload.get("query_start_window"),
         "metrics": metrics,
         "extra": extra_payload,
     }
@@ -816,6 +830,8 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
     source_hzs = [hz for hz in all_hzs if hz != target_hz]
     run_dir = args.output_dir / f"target_{target_hz}Hz"
     run_dir.mkdir(parents=True, exist_ok=True)
+    support_query_gap = int(max(horizons))
+    query_start = int(args.support_size + support_query_gap)
 
     source_sinr_mean, source_sinr_std = compute_sinr_stats(args.dataset_root, source_hzs, split="train")
     support_ds = make_dataset(
@@ -837,7 +853,7 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
         horizons,
         source_sinr_mean,
         source_sinr_std,
-        start=args.support_size,
+        start=query_start,
         end=None,
     )
     support_loader = DataLoader(support_ds, batch_size=min(args.support_size, args.batch_size), shuffle=True, drop_last=False)
@@ -926,6 +942,8 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
                     "hist_window": args.hist_window,
                     "support_size": args.support_size,
                     "query_size": len(query_ds),
+                    "support_query_gap": support_query_gap,
+                    "query_start_window": query_start,
                     "source_hzs": source_hzs,
                     "sinr_mean": source_sinr_mean,
                     "sinr_std": source_sinr_std,
@@ -965,6 +983,8 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
                     "hist_window": args.hist_window,
                     "support_size": args.support_size,
                     "query_size": len(query_ds),
+                    "support_query_gap": support_query_gap,
+                    "query_start_window": query_start,
                     "source_hzs": source_hzs,
                     "sinr_mean": source_sinr_mean,
                     "sinr_std": source_sinr_std,
@@ -1024,6 +1044,8 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
                     "hist_window": args.hist_window,
                     "support_size": args.support_size,
                     "query_size": len(query_ds),
+                    "support_query_gap": support_query_gap,
+                    "query_start_window": query_start,
                     "source_hzs": source_hzs,
                     "sinr_mean": source_sinr_mean,
                     "sinr_std": source_sinr_std,
@@ -1035,6 +1057,7 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
                     "leaf_inner_lr": args.leaf_inner_lr,
                     "leaf_support_size": args.leaf_support_size,
                     "leaf_query_size": args.leaf_query_size,
+                    "leaf_support_query_gap": support_query_gap,
                     "leaf_num_task_segments": args.leaf_num_task_segments,
                     "leaf_freeze_base": args.leaf_freeze_base,
                     "leaf_adjustment": not args.leaf_disable_adjustment,
@@ -1090,7 +1113,7 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
                 horizons,
                 oracle_sinr_mean,
                 oracle_sinr_std,
-                start=args.support_size,
+                start=query_start,
                 end=None,
             )
             oracle_objective = SupervisedObjective(args, oracle_sinr_mean, oracle_sinr_std, device)
@@ -1124,6 +1147,8 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
                     "hist_window": args.hist_window,
                     "support_size": args.support_size,
                     "query_size": len(oracle_query),
+                    "support_query_gap": support_query_gap,
+                    "query_start_window": query_start,
                     "target_train_windows": len(oracle_train),
                     "target_val_windows": len(oracle_val),
                     "sinr_mean": oracle_sinr_mean,
@@ -1166,6 +1191,8 @@ def write_overall_summary(output_dir, results):
                 "sinr_mse": metrics["sinr_mse"],
                 "support_size": payload["support_size"],
                 "query_size": payload["query_size"],
+                "support_query_gap": payload.get("support_query_gap"),
+                "query_start_window": payload.get("query_start_window"),
             }
         )
     summary = pd.DataFrame(rows).sort_values(["target_hz", "method"])

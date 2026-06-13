@@ -27,7 +27,7 @@ DOPPLERS = [5, 20, 50, 100, 200, 300, 400, 500]
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Leave-one-Doppler-out LEAF/Cross-Stitch experiment for 10 ms throughput forecasting."
+        description="Doppler split LEAF/Cross-Stitch experiment for 10 ms throughput forecasting."
     )
     parser.add_argument("--dataset_root", type=Path, default=Path("/4T/xty/new_mcs_dataset"))
     parser.add_argument("--output_dir", type=Path, default=Path("leaf_doppler_leave_one_out"))
@@ -36,7 +36,13 @@ def parse_args():
         "--target_dopplers",
         type=str,
         default="all",
-        help="Comma-separated target Dopplers or 'all'. The experiment is leave-one-out over these targets.",
+        help="Comma-separated target Dopplers or 'all'. Defaults to leave-one-out targets.",
+    )
+    parser.add_argument(
+        "--source_dopplers",
+        type=str,
+        default=None,
+        help="Optional comma-separated fixed source Dopplers. If omitted, each run uses leave-one-out sources.",
     )
     parser.add_argument(
         "--methods",
@@ -129,6 +135,27 @@ def parse_methods(value):
     if bad:
         raise ValueError(f"Unknown methods: {bad}")
     return methods
+
+
+def resolve_source_hzs(args, target_hz, all_hzs):
+    if args.source_dopplers is None:
+        return [hz for hz in all_hzs if hz != target_hz]
+    source_hzs = parse_int_list(args.source_dopplers)
+    missing = [hz for hz in source_hzs if hz not in all_hzs]
+    if missing:
+        raise ValueError(f"Source Dopplers {missing} are not in doppler set {all_hzs}")
+    if target_hz in source_hzs:
+        raise ValueError(f"Target {target_hz}Hz is also present in source_dopplers={source_hzs}")
+    if not source_hzs:
+        raise ValueError("source_dopplers cannot be empty")
+    return source_hzs
+
+
+def fixed_source_cache_dir(args, source_hzs):
+    if args.source_dopplers is None:
+        return None
+    tag = "_".join(str(hz) for hz in source_hzs)
+    return args.output_dir / f"source_{tag}Hz"
 
 
 def seed_everything(seed):
@@ -875,7 +902,7 @@ def evaluate_method(
 
 
 def run_target(args, target_hz, all_hzs, methods, horizons, device):
-    source_hzs = [hz for hz in all_hzs if hz != target_hz]
+    source_hzs = resolve_source_hzs(args, target_hz, all_hzs)
     run_dir = args.output_dir / f"target_{target_hz}Hz"
     run_dir.mkdir(parents=True, exist_ok=True)
     support_query_gap = int(max(horizons))
@@ -908,7 +935,9 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
     query_loader = DataLoader(query_ds, batch_size=args.eval_batch_size, shuffle=False, drop_last=False)
 
     objective = SupervisedObjective(args, source_sinr_mean, source_sinr_std, device)
-    base_state_path = run_dir / "pooled" / "best_pooled.pth"
+    source_cache_dir = fixed_source_cache_dir(args, source_hzs)
+    source_pooled_dir = (source_cache_dir / "pooled") if source_cache_dir is not None else (run_dir / "pooled")
+    base_state_path = source_pooled_dir / "best_pooled.pth"
     pooled_payload = None
 
     if any(method in methods for method in ["pooled", "finetune", "leaf"]):
@@ -942,12 +971,16 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
                     end=None,
                 )
             )
-        pooled_dir = run_dir / "pooled"
-        pooled_metrics_path = pooled_dir / "metrics.json"
+        pooled_eval_dir = run_dir / "pooled"
+        pooled_metrics_path = pooled_eval_dir / "metrics.json"
+        pooled_train_info_path = source_pooled_dir / "train_info.json"
         pooled_model = build_direct_model(args, horizons, device)
-        if pooled_metrics_path.exists() and base_state_path.exists() and not args.force:
-            pooled_payload = json.loads(pooled_metrics_path.read_text(encoding="utf-8"))
+        if base_state_path.exists() and not args.force:
             pooled_model.load_state_dict(torch.load(base_state_path, map_location=device, weights_only=True))
+            if pooled_train_info_path.exists():
+                train_info = json.loads(pooled_train_info_path.read_text(encoding="utf-8"))
+            else:
+                train_info = {"model_path": str(base_state_path), "reused_source_checkpoint": True}
         else:
             train_loader = DataLoader(
                 ConcatDataset(source_train_sets),
@@ -967,11 +1000,15 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
                 train_loader,
                 val_loader,
                 objective,
-                pooled_dir,
+                source_pooled_dir,
                 source_sinr_mean,
                 source_sinr_std,
                 tag="pooled",
             )
+            write_json(pooled_train_info_path, train_info)
+        if pooled_metrics_path.exists() and not args.force:
+            pooled_payload = json.loads(pooled_metrics_path.read_text(encoding="utf-8"))
+        else:
             target_metrics, target_by_h = evaluate_predictions(
                 direct_predict_fn(pooled_model),
                 query_loader,
@@ -980,7 +1017,7 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
                 device,
             )
             pooled_payload = evaluate_method(
-                pooled_dir,
+                pooled_eval_dir,
                 target_hz,
                 "pooled",
                 horizons,
@@ -997,6 +1034,7 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
                     "sinr_std": source_sinr_std,
                     "train_info": train_info,
                     "model_path": str(base_state_path),
+                    "source_cache_dir": str(source_cache_dir) if source_cache_dir is not None else None,
                     "no_target_adaptation": True,
                 },
             )
@@ -1045,11 +1083,15 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
             results.append(payload)
 
     if "leaf" in methods:
-        leaf_dir = run_dir / "leaf"
-        metrics_path = leaf_dir / "metrics.json"
+        leaf_eval_dir = run_dir / "leaf"
+        leaf_train_dir = (source_cache_dir / "leaf") if source_cache_dir is not None else leaf_eval_dir
+        metrics_path = leaf_eval_dir / "metrics.json"
+        leaf_model_path = leaf_train_dir / "best_leaf_crossstitch.pth"
+        leaf_train_info_path = leaf_train_dir / "train_info.json"
         if metrics_path.exists() and not args.force:
             results.append(json.loads(metrics_path.read_text(encoding="utf-8")))
         else:
+            leaf_eval_dir.mkdir(parents=True, exist_ok=True)
             leaf_base = build_direct_model(args, horizons, device)
             leaf_base.load_state_dict(base_state)
             leaf_model = LeafCrossStitch(
@@ -1061,8 +1103,16 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
                 sinr_shift_scale=args.leaf_sinr_shift_scale,
                 use_adjustment=not args.leaf_disable_adjustment,
             ).to(device)
-            leaf_tasks = make_leaf_tasks(args, args.dataset_root, source_hzs, horizons, source_sinr_mean, source_sinr_std)
-            train_info = train_leaf_model(args, leaf_model, leaf_tasks, objective, leaf_dir)
+            if leaf_model_path.exists() and not args.force:
+                leaf_model.load_state_dict(torch.load(leaf_model_path, map_location=device, weights_only=True))
+                if leaf_train_info_path.exists():
+                    train_info = json.loads(leaf_train_info_path.read_text(encoding="utf-8"))
+                else:
+                    train_info = {"model_path": str(leaf_model_path), "reused_source_checkpoint": True}
+            else:
+                leaf_tasks = make_leaf_tasks(args, args.dataset_root, source_hzs, horizons, source_sinr_mean, source_sinr_std)
+                train_info = train_leaf_model(args, leaf_model, leaf_tasks, objective, leaf_train_dir)
+                write_json(leaf_train_info_path, train_info)
 
             support_batch = one_batch_loader(support_ds, min(args.support_size, args.batch_size), shuffle=False)
             adapted_latent = adapt_leaf_latent(
@@ -1074,7 +1124,7 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
                 args.leaf_inner_lr,
                 first_order=True,
             ).detach()
-            torch.save({"latent": adapted_latent.cpu(), "target_hz": target_hz}, leaf_dir / "target_adapted_latent.pth")
+            torch.save({"latent": adapted_latent.cpu(), "target_hz": target_hz}, leaf_eval_dir / "target_adapted_latent.pth")
             metrics, by_h = evaluate_predictions(
                 leaf_predict_fn(leaf_model, adapted_latent),
                 query_loader,
@@ -1083,7 +1133,7 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
                 device,
             )
             payload = evaluate_method(
-                leaf_dir,
+                leaf_eval_dir,
                 target_hz,
                 "leaf_crossstitch",
                 horizons,
@@ -1099,6 +1149,7 @@ def run_target(args, target_hz, all_hzs, methods, horizons, device):
                     "sinr_mean": source_sinr_mean,
                     "sinr_std": source_sinr_std,
                     "base_model_path": str(base_state_path),
+                    "source_cache_dir": str(source_cache_dir) if source_cache_dir is not None else None,
                     "train_info": train_info,
                     "leaf_latent_dim": args.leaf_latent_dim,
                     "leaf_inner_steps": args.leaf_inner_steps,
@@ -1242,6 +1293,7 @@ def write_overall_summary(output_dir, results):
                 "query_size": payload["query_size"],
                 "support_query_gap": payload.get("support_query_gap"),
                 "query_start_window": payload.get("query_start_window"),
+                "source_hzs": ",".join(str(hz) for hz in payload.get("extra", {}).get("source_hzs", [])),
             }
         )
     summary = pd.DataFrame(rows).sort_values(["target_hz", "method"])
@@ -1278,7 +1330,9 @@ def main():
     for target_hz in target_hzs:
         if target_hz not in all_hzs:
             raise ValueError(f"Target {target_hz} is not in doppler set {all_hzs}")
-        print(f"\n=== leave-one-out target {target_hz}Hz ===")
+        source_hzs = resolve_source_hzs(args, target_hz, all_hzs)
+        split_name = "fixed-source" if args.source_dopplers is not None else "leave-one-out"
+        print(f"\n=== {split_name} target {target_hz}Hz | source {source_hzs} ===")
         all_results.extend(run_target(args, target_hz, all_hzs, methods, horizons, device))
         write_overall_summary(args.output_dir, all_results)
 

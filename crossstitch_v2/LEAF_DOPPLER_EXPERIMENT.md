@@ -71,6 +71,33 @@ Run from `/4T/xty/crossstitch_v2`:
 The script is resumable. If `metrics.json` and checkpoints already exist for a
 method, they are reused unless `--force` is passed.
 
+## Low-To-High Hard Split
+
+A harder Doppler extrapolation split can be run with fixed low-Doppler source
+domains and high-Doppler targets:
+
+```text
+train/source: 5, 20, 50, 100 Hz
+test/target: 300, 400, 500 Hz
+```
+
+Run:
+
+```bash
+/4T/xty/miniconda3/envs/bel-gpu/bin/python code/Train/run_leaf_doppler_experiment.py \
+  --output_dir leaf_doppler_low_to_high_hard_split_shared \
+  --source_dopplers 5,20,50,100 \
+  --target_dopplers 300,400,500 \
+  --methods pooled,finetune,leaf,oracle \
+  --support_size 128 \
+  --device cuda:0
+```
+
+When `--source_dopplers` is set, source-side checkpoints are shared across all
+targets in a directory such as `source_5_20_50_100Hz/`. Target-specific
+support adaptation and query metrics are still written under `target_300Hz/`,
+`target_400Hz/`, and `target_500Hz/`.
+
 ## Faster Debug Run
 
 Use this to validate the pipeline without waiting for full training:
